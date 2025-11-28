@@ -1,49 +1,42 @@
-# Use PHP 8.2 with Apache
 FROM php:8.2-apache
 
-# Enable Apache mod_rewrite
+# Enable Apache rewrite
 RUN a2enmod rewrite
 
-# Set working directory
+# Fix ServerName warning
+RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
+
+# Install system packages + Node.js for Vite
+RUN apt-get update && apt-get install -y \
+    zip unzip git curl libpng-dev libonig-dev libxml2-dev libzip-dev \
+    && docker-php-ext-install pdo pdo_mysql mbstring zip exif pcntl gd \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
+
 WORKDIR /var/www/html
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    zip \
-    unzip \
-    libpng-dev \
-    libonig-dev \
-    libxml2-dev \
-    sqlite3 \
-    libsqlite3-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install PHP extensions
-RUN docker-php-ext-install pdo pdo_mysql pdo_sqlite mbstring exif pcntl bcmath gd
-
-# Install Composer
-COPY --from=composer:2.6 /usr/bin/composer /usr/bin/composer
-
-# Copy composer files first
-COPY composer.json composer.lock ./
-
-# Allow Composer to run as root
-ENV COMPOSER_ALLOW_SUPERUSER=1
-
-# Install PHP dependencies
-RUN composer install --no-dev --optimize-autoloader
-
-# Copy the rest of the app
+# Copy project
 COPY . .
 
-# Set Apache Document Root to Laravel public folder
-ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
-RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
-RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+# Install composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Expose port 80
-EXPOSE 80
+# Install backend dependencies
+RUN composer install --no-dev --optimize-autoloader
 
-# Start Apache in foreground
-CMD ["apache2-foreground"]
+# Install frontend dependencies and build Vite prod assets
+RUN npm install
+RUN npm run build
+
+# Fix permissions
+RUN chown -R www-data:www-data storage bootstrap/cache
+
+# Point Apache to public folder
+RUN sed -i 's#/var/www/html#/var/www/html/public#' /etc/apache2/sites-available/000-default.conf
+
+EXPOSE 8080
+
+# Railway port mapping
+CMD sed -i "s/80/${PORT}/" /etc/apache2/ports.conf \
+    && sed -i "s/:80/:${PORT}/" /etc/apache2/sites-enabled/000-default.conf \
+    && apachectl -D FOREGROUND
