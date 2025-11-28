@@ -4,18 +4,18 @@ nixPkgs = { nodejs = "18", php = "82" }
 [phases.install]
 cmds = [
     "composer install --no-dev --optimize-autoloader",
-    "npm install"
+    "npm ci",
+    "chmod +x start.sh"
 ]
 
 [phases.build]
 cmds = [
-    "chmod +x node_modules/.bin/vite || true",
-    "npm run build",
+    "npx vite build",
     "php artisan config:cache",
     "php artisan route:cache",
     "php artisan view:cache"
 ]
 
 [start]
-cmd = "php artisan serve --host=0.0.0.0 --port=$PORT"
+cmd = "./start.sh"
 
